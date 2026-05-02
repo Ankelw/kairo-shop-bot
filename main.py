@@ -6,11 +6,16 @@ import sqlite3
 from datetime import datetime, timedelta
 from flask import Flask
 from telebot import types
-import urllib3
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
+
+# --- ОБЯЗАТЕЛЬНО ВСТАВЬ СВОЮ ССЫЛКУ СЮДА ---
+GOOGLE_BRIDGE = "https://script.google.com/macros/s/XXXXX/exec"
+
+BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
+CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
+
+bot = telebot.TeleBot(BOT_TOKEN)
 
 def init_db():
     conn = sqlite3.connect('users.db', check_same_thread=False)
@@ -40,23 +45,6 @@ def add_subscription(user_id, days):
 @app.route('/')
 def health(): return "OK", 200
 
-BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
-CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
-API_URL = "https://pay.cryptopay.me/api"
-
-# Используем прокси-сервер для обхода блокировок Render
-# Если этот прокси перестанет работать, его можно заменить на любой другой из списка 'free proxy list'
-PROXIES = {
-    "https": "http://161.35.70.244:80" 
-}
-
-HEADERS = {
-    'Crypto-Pay-API-Token': CRYPTO_TOKEN,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'
-}
-
-bot = telebot.TeleBot(BOT_TOKEN)
-
 @bot.message_handler(commands=['start'])
 def start(m):
     markup = types.InlineKeyboardMarkup(row_width=1)
@@ -75,55 +63,51 @@ def my_sub(m):
     row = cur.fetchone()
     conn.close()
     if row:
-        bot.send_message(m.chat.id, f"✅ Подписка до: **{row[0]}**", parse_mode="Markdown")
+        bot.send_message(m.chat.id, f"✅ Подписка активна до: **{row[0]}**", parse_mode="Markdown")
     else:
-        bot.send_message(m.chat.id, "❌ Подписки нет.")
+        bot.send_message(m.chat.id, "❌ У вас нет активной подписки.")
 
 @bot.callback_query_handler(func=lambda c: True)
 def calls(c):
     if c.data.startswith("buy_"):
         _, price, days = c.data.split("_")
         try:
-            # Делаем запрос через прокси
-            r = requests.post(
-                f"{API_URL}/createInvoice", 
-                json={'asset': 'USDT', 'amount': price}, 
-                headers=HEADERS, 
-                proxies=PROXIES, 
-                timeout=10, 
-                verify=False
-            )
-            data = r.json()
+            # Запрос через Google мост
+            response = requests.post(GOOGLE_BRIDGE, json={
+                "token": CRYPTO_TOKEN,
+                "payload": {"asset": "USDT", "amount": price}
+            })
+            data = response.json()
+            
             if data.get('ok'):
+                res = data['result']
                 m = types.InlineKeyboardMarkup()
-                m.add(types.InlineKeyboardButton("💳 Оплатить", url=data['result']['pay_url']))
-                m.add(types.InlineKeyboardButton("✅ Проверить", callback_data=f"check_{data['result']['invoice_id']}_{days}"))
+                m.add(types.InlineKeyboardButton("💳 Оплатить", url=res['pay_url']))
+                m.add(types.InlineKeyboardButton("✅ Проверить", callback_data=f"check_{res['invoice_id']}_{days}"))
                 bot.edit_message_text(f"Счет на {price} USDT создан!", c.message.chat.id, c.message.message_id, reply_markup=m)
             else:
-                bot.send_message(c.message.chat.id, f"Ошибка: {data.get('error', {}).get('name')}")
+                bot.send_message(c.message.chat.id, "⚠️ Ошибка платежной системы. Проверьте настройки моста.")
         except Exception as e:
-            bot.send_message(c.message.chat.id, f"⚠️ Ошибка прокси (Render блокирует прямой доступ):\n`{str(e)[:100]}`", parse_mode="Markdown")
+            bot.send_message(c.message.chat.id, f"⚠️ Ошибка связи с мостом. Проверьте ссылку GOOGLE_BRIDGE.")
 
     elif c.data.startswith("check_"):
         _, inv_id, days = c.data.split("_")
         try:
-            r = requests.get(
-                f"{API_URL}/getInvoices?invoice_ids={inv_id}", 
-                headers=HEADERS, 
-                proxies=PROXIES, 
-                timeout=10, 
-                verify=False
-            )
-            data = r.json()
+            # Проверка через Google мост
+            response = requests.get(f"{GOOGLE_BRIDGE}?id={inv_id}&token={CRYPTO_TOKEN}")
+            data = response.json()
+            
             if data.get('ok') and data['result']['items'][0]['status'] == 'paid':
                 date = add_subscription(c.from_user.id, int(days))
-                bot.edit_message_text(f"🎉 Оплачено! Доступ до: {date}", c.message.chat.id, c.message.message_id)
+                bot.edit_message_text(f"🎉 Оплата принята! Подписка активна до: {date}", c.message.chat.id, c.message.message_id)
             else:
-                bot.answer_callback_query(c.id, "❌ Оплата не найдена", show_alert=True)
+                bot.answer_callback_query(c.id, "❌ Оплата еще не поступила", show_alert=True)
         except:
-            bot.answer_callback_query(c.id, "Ошибка связи через прокси.")
+            bot.answer_callback_query(c.id, "❌ Ошибка при проверке оплаты.")
 
 if __name__ == "__main__":
     init_db()
+    # Запуск Flask для Render в отдельном потоке
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000))), daemon=True).start()
+    # Запуск бота
     bot.polling(none_stop=True)
