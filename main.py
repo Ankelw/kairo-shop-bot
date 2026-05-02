@@ -49,7 +49,7 @@ def run_web():
 # --- НАСТРОЙКИ БОТА ---
 BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
 CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
-API_URL = "https://pay.cryptopay.me/api"
+API_URL = "https://testnet-pay.cryptopay.me/api"
 HEADERS = {'Crypto-Pay-API-Token': CRYPTO_TOKEN}
 
 bot = telebot.TeleBot(BOT_TOKEN)
