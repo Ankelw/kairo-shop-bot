@@ -13,6 +13,29 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
+# --- МЕХАНИЗМ ОБХОДА DNS ---
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
+import socket
+
+class HostHeaderSSLAdapter(HTTPAdapter):
+    def resolve_dns(self, url):
+        # Принудительно направляем на IP Crypto Pay
+        if "pay.cryptopay.me" in url:
+            return "104.26.10.165"
+        return None
+
+    def send(self, request, **kwargs):
+        resolved_ip = self.resolve_dns(request.url)
+        if resolved_ip:
+            request.url = request.url.replace("pay.cryptopay.me", resolved_ip)
+            request.headers['Host'] = "pay.cryptopay.me"
+        return super().send(request, **kwargs)
+
+session = requests.Session()
+session.mount("https://", HostHeaderSSLAdapter())
+# ---------------------------
+
 def init_db():
     conn = sqlite3.connect('users.db', check_same_thread=False)
     cur = conn.cursor()
@@ -41,15 +64,13 @@ def add_subscription(user_id, days):
 @app.route('/')
 def health(): return "OK", 200
 
-# --- НАСТРОЙКИ ---
 BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
 CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
 API_URL = "https://pay.cryptopay.me/api"
 
-# Маскируемся под браузер Windows, чтобы обойти блокировку
 HEADERS = {
     'Crypto-Pay-API-Token': CRYPTO_TOKEN,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
 }
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -60,7 +81,7 @@ def start(m):
     markup.add(
         types.InlineKeyboardButton("Неделя — $1.5", callback_data="buy_1.5_7"),
         types.InlineKeyboardButton("Месяц — $3", callback_data="buy_3_30"),
-        types.InlineKeyboardButton("Год — $10", callback_data="buy_10_365") # Кнопка возвращена
+        types.InlineKeyboardButton("Год — $10", callback_data="buy_10_365")
     )
     bot.send_message(m.chat.id, "🛒 **Kairo Shop**\nВыбери тариф:\nПроверить подписку: /my", reply_markup=markup, parse_mode="Markdown")
 
@@ -71,23 +92,18 @@ def my_sub(m):
     cur.execute("SELECT expiry_date FROM users WHERE user_id = ?", (m.chat.id,))
     row = cur.fetchone()
     conn.close()
-    
     if row:
-        expiry = datetime.strptime(row[0], '%Y-%m-%d %H:%M:%S')
-        if expiry > datetime.now():
-            bot.send_message(m.chat.id, f"✅ Подписка активна до: **{row[0]}**", parse_mode="Markdown")
-        else:
-            bot.send_message(m.chat.id, f"❌ Подписка истекла (**{row[0]}**).")
+        bot.send_message(m.chat.id, f"✅ Подписка до: **{row[0]}**", parse_mode="Markdown")
     else:
-        bot.send_message(m.chat.id, "❌ У вас нет активной подписки.")
+        bot.send_message(m.chat.id, "❌ Подписки нет.")
 
 @bot.callback_query_handler(func=lambda c: True)
 def calls(c):
     if c.data.startswith("buy_"):
         _, price, days = c.data.split("_")
-        payload = {'asset': 'USDT', 'amount': price}
         try:
-            r = requests.post(f"{API_URL}/createInvoice", json=payload, headers=HEADERS, verify=False)
+            # Используем нашу сессию с обходом DNS
+            r = session.post(f"{API_URL}/createInvoice", json={'asset': 'USDT', 'amount': price}, headers=HEADERS, verify=False)
             data = r.json()
             if data.get('ok'):
                 m = types.InlineKeyboardMarkup()
@@ -95,25 +111,22 @@ def calls(c):
                 m.add(types.InlineKeyboardButton("✅ Проверить", callback_data=f"check_{data['result']['invoice_id']}_{days}"))
                 bot.edit_message_text(f"Счет на {price} USDT создан!", c.message.chat.id, c.message.message_id, reply_markup=m)
             else:
-                # Если токен неверный, выведет это
-                error_name = data.get('error', {}).get('name', 'Неизвестная ошибка')
-                bot.send_message(c.message.chat.id, f"⚠️ Отказ от CryptoPay: {error_name}")
+                bot.send_message(c.message.chat.id, f"Ошибка API: {data.get('error', {}).get('name')}")
         except Exception as e:
-            # Выведет точную системную ошибку прямо в чат
-            bot.send_message(c.message.chat.id, f"⚠️ Системная ошибка сети:\n`{str(e)}`", parse_mode="Markdown")
+            bot.send_message(c.message.chat.id, f"⚠️ Ошибка соединения:\n`{str(e)[:100]}...`", parse_mode="Markdown")
 
     elif c.data.startswith("check_"):
         _, inv_id, days = c.data.split("_")
         try:
-            r = requests.get(f"{API_URL}/getInvoices?invoice_ids={inv_id}", headers=HEADERS, verify=False)
+            r = session.get(f"{API_URL}/getInvoices?invoice_ids={inv_id}", headers=HEADERS, verify=False)
             data = r.json()
             if data.get('ok') and data['result']['items'][0]['status'] == 'paid':
                 date = add_subscription(c.from_user.id, int(days))
-                bot.edit_message_text(f"🎉 Оплачено! Доступ до: {date}", c.message.chat.id, c.message.message_id)
+                bot.edit_message_text(f"🎉 Оплачено! До: {date}", c.message.chat.id, c.message.message_id)
             else:
                 bot.answer_callback_query(c.id, "❌ Оплата не найдена", show_alert=True)
-        except Exception as e:
-             bot.answer_callback_query(c.id, f"Ошибка: {str(e)[:50]}")
+        except:
+            bot.answer_callback_query(c.id, "Ошибка связи.")
 
 if __name__ == "__main__":
     init_db()
