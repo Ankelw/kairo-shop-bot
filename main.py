@@ -8,33 +8,9 @@ from flask import Flask
 from telebot import types
 import urllib3
 
-# Отключаем предупреждения SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
-
-# --- МЕХАНИЗМ ОБХОДА DNS ---
-from requests.adapters import HTTPAdapter
-from urllib3.poolmanager import PoolManager
-import socket
-
-class HostHeaderSSLAdapter(HTTPAdapter):
-    def resolve_dns(self, url):
-        # Принудительно направляем на IP Crypto Pay
-        if "pay.cryptopay.me" in url:
-            return "104.26.10.165"
-        return None
-
-    def send(self, request, **kwargs):
-        resolved_ip = self.resolve_dns(request.url)
-        if resolved_ip:
-            request.url = request.url.replace("pay.cryptopay.me", resolved_ip)
-            request.headers['Host'] = "pay.cryptopay.me"
-        return super().send(request, **kwargs)
-
-session = requests.Session()
-session.mount("https://", HostHeaderSSLAdapter())
-# ---------------------------
 
 def init_db():
     conn = sqlite3.connect('users.db', check_same_thread=False)
@@ -68,9 +44,15 @@ BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
 CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
 API_URL = "https://pay.cryptopay.me/api"
 
+# Используем прокси-сервер для обхода блокировок Render
+# Если этот прокси перестанет работать, его можно заменить на любой другой из списка 'free proxy list'
+PROXIES = {
+    "https": "http://161.35.70.244:80" 
+}
+
 HEADERS = {
     'Crypto-Pay-API-Token': CRYPTO_TOKEN,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36'
 }
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -102,8 +84,15 @@ def calls(c):
     if c.data.startswith("buy_"):
         _, price, days = c.data.split("_")
         try:
-            # Используем нашу сессию с обходом DNS
-            r = session.post(f"{API_URL}/createInvoice", json={'asset': 'USDT', 'amount': price}, headers=HEADERS, verify=False)
+            # Делаем запрос через прокси
+            r = requests.post(
+                f"{API_URL}/createInvoice", 
+                json={'asset': 'USDT', 'amount': price}, 
+                headers=HEADERS, 
+                proxies=PROXIES, 
+                timeout=10, 
+                verify=False
+            )
             data = r.json()
             if data.get('ok'):
                 m = types.InlineKeyboardMarkup()
@@ -111,22 +100,28 @@ def calls(c):
                 m.add(types.InlineKeyboardButton("✅ Проверить", callback_data=f"check_{data['result']['invoice_id']}_{days}"))
                 bot.edit_message_text(f"Счет на {price} USDT создан!", c.message.chat.id, c.message.message_id, reply_markup=m)
             else:
-                bot.send_message(c.message.chat.id, f"Ошибка API: {data.get('error', {}).get('name')}")
+                bot.send_message(c.message.chat.id, f"Ошибка: {data.get('error', {}).get('name')}")
         except Exception as e:
-            bot.send_message(c.message.chat.id, f"⚠️ Ошибка соединения:\n`{str(e)[:100]}...`", parse_mode="Markdown")
+            bot.send_message(c.message.chat.id, f"⚠️ Ошибка прокси (Render блокирует прямой доступ):\n`{str(e)[:100]}`", parse_mode="Markdown")
 
     elif c.data.startswith("check_"):
         _, inv_id, days = c.data.split("_")
         try:
-            r = session.get(f"{API_URL}/getInvoices?invoice_ids={inv_id}", headers=HEADERS, verify=False)
+            r = requests.get(
+                f"{API_URL}/getInvoices?invoice_ids={inv_id}", 
+                headers=HEADERS, 
+                proxies=PROXIES, 
+                timeout=10, 
+                verify=False
+            )
             data = r.json()
             if data.get('ok') and data['result']['items'][0]['status'] == 'paid':
                 date = add_subscription(c.from_user.id, int(days))
-                bot.edit_message_text(f"🎉 Оплачено! До: {date}", c.message.chat.id, c.message.message_id)
+                bot.edit_message_text(f"🎉 Оплачено! Доступ до: {date}", c.message.chat.id, c.message.message_id)
             else:
                 bot.answer_callback_query(c.id, "❌ Оплата не найдена", show_alert=True)
         except:
-            bot.answer_callback_query(c.id, "Ошибка связи.")
+            bot.answer_callback_query(c.id, "Ошибка связи через прокси.")
 
 if __name__ == "__main__":
     init_db()
