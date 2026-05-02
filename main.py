@@ -13,7 +13,7 @@ app = Flask(__name__)
 GOOGLE_BRIDGE = "https://script.google.com/macros/s/AKfycbwDK0eHs4bH2xr9DeTHI8gB9u0ADIez1RPf-aOkbBkfqQewmYoqkvonJzWb3ROGE7sP/exec"
 
 BOT_TOKEN = "8716589061:AAFI52set5odaESDkcR9bokrXk0u_z_uzy0"
-CRYPTO_TOKEN = "576413:AAyvNq1n2VLIRrZy85jqOIQXqsKpTu5Gk8S"
+CRYPTO_TOKEN = "576540:AAIMOZdjl6DvSRNzQgSImitflQqMPnbpjb2"
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
