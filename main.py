@@ -7,17 +7,9 @@ import threading
 import time
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "import telebot
-from telebot import types
-import requests
-import sqlite3
-from datetime import datetime, timedelta
-import threading
-import time
-
-# --- НАСТРОЙКИ ---
+# ОСТАВЛЯЕМ ТОЛЬКО ЭТОТ БЛОК (который у тебя на скрине ниже):
 BOT_TOKEN = "8384323577:AAFRz-QZATjtSad5DSu_8a8Ge0qB7Qt-OVk"
-CRYPTO_TOKEN = "576769:AAaLX6VEhaxSyMX33tZB6IBpvYOgAKp5327"
+CRYPTO_TOKEN = "576769:AAaLX6VEhaxSyMX33tZB6IBpvY0gAKp5327"
 # Никаких ссылок на Google больше нет!
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -25,6 +17,7 @@ bot = telebot.TeleBot(BOT_TOKEN)
 # --- БАЗА ДАННЫХ ---
 def init_db():
     conn = sqlite3.connect('kairo.db', check_same_thread=False)
+# ... дальше весь твой остальной код
     cur = conn.cursor()
     # Таблица пользователей: кто купил и до какого числа
     cur.execute('''CREATE TABLE IF NOT EXISTS users 
