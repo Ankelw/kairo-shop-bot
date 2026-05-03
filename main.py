@@ -16,7 +16,7 @@ import threading
 import time
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "ТВОЙ_НОВЫЙ_ТОКЕН_ОТ_BOTFATHER"
+BOT_TOKEN = "8384323577:AAFRz-QZATjtSad5DSu_8a8Ge0qB7Qt-OVk"
 CRYPTO_TOKEN = "576769:AAaLX6VEhaxSyMX33tZB6IBpvYOgAKp5327"
 # Никаких ссылок на Google больше нет!
 
