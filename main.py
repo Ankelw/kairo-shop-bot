@@ -5,7 +5,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import requests
 
-# --- НАСТРОЙКИ ---
+# --- НАСТРОЙКИ (ТВОИ ТОКЕНЫ ИЗ СКРИНШОТОВ) ---
 BOT_TOKEN = "8384323577:AAFRz-QZATjtSad5DSu_8a8Ge0qB7Qt-OVk"
 CRYPTO_TOKEN = "576769:AAaLX6VEhaxSyMX33tZB6IBpvY0gAKp5327"
 
@@ -41,10 +41,10 @@ def check_invoice(invoice_id):
     except: pass
     return None
 
-# --- ЛОГИКА ВЕБХУКА (ДЛЯ RENDER) ---
+# --- ЛОГИКА ВЕБХУКА (ЧТОБЫ РАБОТАЛО НА RENDER) ---
 @app.route('/')
 def home():
-    return "Бот активен!", 200
+    return "Kairo Bot is Online", 200
 
 @app.route('/' + BOT_TOKEN, methods=['POST'])
 def getMessage():
@@ -53,7 +53,7 @@ def getMessage():
     bot.process_new_updates([update])
     return "!", 200
 
-# --- ОБРАБОТЧИКИ БОТА ---
+# --- КОМАНДЫ БОТА ---
 @bot.message_handler(commands=['start'])
 def start(m):
     kb = telebot.types.InlineKeyboardMarkup(row_width=1)
@@ -79,7 +79,7 @@ def handle_calls(c):
             kb = telebot.types.InlineKeyboardMarkup()
             kb.add(telebot.types.InlineKeyboardButton("💳 Оплатить", url=inv['pay_url']))
             kb.add(telebot.types.InlineKeyboardButton("✅ Проверить", callback_data=f"check_{inv['invoice_id']}"))
-            bot.edit_message_text(f"Счет на {price} USDT создан. У тебя 1 час на оплату.", c.message.chat.id, c.message.message_id, reply_markup=kb)
+            bot.edit_message_text(f"Счет на {price} USDT создан.", c.message.chat.id, c.message.message_id, reply_markup=kb)
 
     elif c.data.startswith("check_"):
         inv_id = c.data.split("_")[1]
@@ -93,12 +93,11 @@ def handle_calls(c):
                 cur.execute("INSERT OR REPLACE INTO users VALUES (?, ?)", (c.from_user.id, exp))
                 cur.execute("DELETE FROM pending_invoices WHERE invoice_id = ?", (inv_id,))
                 conn.commit()
-                bot.send_message(c.message.chat.id, f"🎉 Оплата прошла! Подписка активна до: {exp}")
+                bot.send_message(c.message.chat.id, f"🎉 Доступ открыт до: {exp}")
             conn.close()
         else:
-            bot.answer_callback_query(c.id, "❌ Оплата не найдена", show_alert=True)
+            bot.answer_callback_query(c.id, "❌ Оплата не найдена")
 
-# --- ЗАПУСК ---
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 5000))
